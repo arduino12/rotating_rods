@@ -2,6 +2,8 @@
  * Rotating Rods - 22 large vertical rods (X aluminum profiles) rotates to create visual patterns.
  * Based on Dan Reisinger's artwork.
  *
+ * https://github.com/arduino12/rotating_rods
+ *
  * Wiring:
  *   https://docs.google.com/presentation/d/1KEq_qDWCliBDza_pi2NsCsC85T2rr4le3yrmxQ1LMs4/edit?usp=sharing
  *   ┌────────┬─────────────────────────────────────────┬──────────────────┐
@@ -54,24 +56,30 @@
 #include <Wire.h>
 #include <AccelStepper.h>							// https://github.com/waspinator/AccelStepper.git
 
-#define SERIAL_BAUD_RATE				(115200)	// debug UART baudrate
+#define DEBUG_SERIAL_BAUDRATE			(115200)	// debug UART baudrate, comment out to disable
 #define AXIS_ENA_PIN					(2)			// pins (2 + 3n) connected to stepper driver ENAs
 #define AXIS_DIR_PIN					(3)			// pins (3 + 3n) connected to stepper driver DIRs
 #define AXIS_PUL_PIN					(4)			// pins (4 + 3n) connected to stepper driver PULs
 #define AXIS_LMT_PIN					(A0)		// pins (A0 + n) connected to limit (home) sensor
 #define AXIS_PER_ARDUINO				(4)			// max 4 axes (stepper motor drivers) per arduino UNO
 #define AXIS_TOTAL_COUNT				(22)		// total axes in the exhibit
-#define AXIS_SPEED						(250*8)		// max axis speed (10 - 2550) steps per seconds (if CMD_SPEED_SCALE = 10)
+#define AXIS_SPEED						(250*6)		// max axis speed (10 - 2550) steps per seconds (if CMD_SPEED_SCALE = 10)
 #define AXIS_ACCELERATION				(100*6)		// acceleration and deceleration rate
 #define AXIS_STEPS_PER_REVOLUTION		(1600)		// must match the stepper driver DIP switch configuration
 #define AXIS_HOMING_OFFSET				(70)		// steps offset of the sensor reading to the axis alignment
-#define AXIS_HOMING_TIMEOUT_MS			(6000)		// amount of time for all axes to be at home after homing cmd
+#define AXIS_HOMING_TIMEOUT_MS			(7000)		// amount of time for all axes to be at home after homing cmd
 #define AXIS_QUADRANT_COUNT				(4)
 #define AXIS_STEPS_PER_QUADRANT			(AXIS_STEPS_PER_REVOLUTION / AXIS_QUADRANT_COUNT)
 #define CMD_START						(0x55)
 #define CMD_SPEED_SCALE					(10)
 #define ARDUINO_COUNT					((AXIS_TOTAL_COUNT + AXIS_PER_ARDUINO - 1) / AXIS_PER_ARDUINO)
 #define NL								"\n"
+
+#ifdef DEBUG_SERIAL_BAUDRATE
+	#define DEBUG_SERIAL(args)			Serial << args
+#else
+	#define DEBUG_SERIAL(args)
+#endif
 
 enum {
 	AXIS_STATUS_IDLE = 0,
@@ -98,7 +106,7 @@ typedef struct {
 	union {
 		uint8_t args[8];
 		struct {
-			uint8_t index:2;
+			uint8_t quadrant:2;
 			int8_t rotations:6;
 			uint8_t speed;
 		} set_axis_args[4];
@@ -112,8 +120,8 @@ axis_t *axes;
 uint8_t arduino_id;
 
 // add the "<<" operator to Serial and other objects inherited from Print class
-template<class T> inline Print& operator <<(Print &obj,     T arg) { obj.print(arg);    return obj; }
-template<>        inline Print& operator <<(Print &obj, float arg) { obj.print(arg, 4); return obj; }
+template<class T> inline Print& operator <<(Print &o,     T a) { o.print(a);    return o; }
+template<>        inline Print& operator <<(Print &o, float a) { o.print(a, 4); return o; }
 
 bool is_axis_home(axis_t *axis)
 {
@@ -122,14 +130,14 @@ bool is_axis_home(axis_t *axis)
 
 void handle_axes_homing()
 {
-	Serial << "Homing..." << NL;
+	DEBUG_SERIAL("Homing..." NL);
 
 	// set axes to rotate a bit away from home if needed
 	for (axis_t *axis = axes; axis->motor; axis++) {
 		axis->motor->setCurrentPosition(0);
 		axis->motor->enableOutputs();
 		if (is_axis_home(axis)) {
-			Serial << "  axis: " << axis->index << " is already home, rotating..." << NL;
+			DEBUG_SERIAL("  axis: " << axis->index << " is already home, rotating..." NL);
 			axis->motor->moveTo(-AXIS_STEPS_PER_REVOLUTION / 8);
 		}
 	}
@@ -148,7 +156,7 @@ void handle_axes_homing()
 		if (is_axis_home(axis)) {
 			axis->motor->disableOutputs();
 			axis->status = AXIS_STATUS_STUCK;
-			Serial << "  axis: " << axis->index << " is still home, is it stuck?!" << NL;
+			DEBUG_SERIAL("  axis: " << axis->index << " is still home, is it stuck?!" NL);
 		}
 		else {
 			axis->motor->moveTo(AXIS_STEPS_PER_REVOLUTION * 1.5);
@@ -171,7 +179,7 @@ void handle_axes_homing()
 					axis->motor->disableOutputs();
 					axis->motor->setCurrentPosition(0);
 					axis->status = AXIS_STATUS_IDLE;
-					Serial << "  axis: " << axis->index << " is home!" << NL;
+					DEBUG_SERIAL("  axis: " << axis->index << " is home!" NL);
 					continue;
 				}
 			}
@@ -187,59 +195,59 @@ void handle_axes_homing()
 		if ((axis->status == AXIS_STATUS_HOMING1) || (axis->status == AXIS_STATUS_HOMING2)) {
 			axis->motor->disableOutputs();
 			axis->status = AXIS_STATUS_STUCK;
-			Serial << "  axis: " << axis->index << " didn't made it home!" << NL;
+			DEBUG_SERIAL("  axis: " << axis->index << " didn't made it home!" NL);
 		}
 	}
 
 	if (arduino_id)
-		Serial << "Done homing!" << NL;
+		DEBUG_SERIAL("Done homing!" NL);
 }
 
 void i2c_on_receive(int len)
 {
-	Serial << "I2C received " << len << " bytes:" << NL;
+	DEBUG_SERIAL("I2C received " << len << " bytes:" NL);
 
 	if (cmds->id) {
-		Serial << "  still processing old cmd id: " << cmds->id << '!' << NL;
+		DEBUG_SERIAL("  still processing old cmd id: " << cmds->id << "!" NL);
 		return;
 	}
 
 	len = Wire.read();
 	if (len != CMD_START) {
-		Serial << "  wrong cmd start: " << len << '!' << NL;
+		DEBUG_SERIAL("  wrong cmd start: " << len << "!" NL);
 		return;
 	}
 
 	uint8_t cmd_id = Wire.read();
 	if ((cmd_id <= 0) || (cmd_id >= CMD_COUNT)) {
-		Serial << "  wrong cmd id: " << cmd_id << '!' << NL;
+		DEBUG_SERIAL("  wrong cmd id: " << cmd_id << "!" NL);
 		return;
 	}
 
 	len = Wire.available();
 	if (len != CMD_ARGS_COUNT[cmd_id - 1]) {
-		Serial << "  wrong cmd args count: " << len << '!' << NL;
+		DEBUG_SERIAL("  wrong cmd args count: " << len << "!" NL);
 		return;
 	}
 
 	cmds->id = cmd_id;
 	for (uint8_t i = 0; i < len; i++)
 		cmds->args[i] = Wire.read();
-	Serial << "  cmd id: " << cmd_id << " parsed successfully!" << NL;
+	DEBUG_SERIAL("  cmd id: " << cmd_id << " parsed successfully!" NL);
 }
 
 void i2c_on_request()
 {
 	uint8_t status = 0;
 
-	Serial << "I2C request! sending axes status report: [ ";
+	DEBUG_SERIAL("I2C request! sending axes status report: [ ");
 	for (axis_t *axis = axes; axis->motor; axis++) {
-		Serial << axis->status << ' ';
+		DEBUG_SERIAL(axis->status << ' ');
 		status <<= 2;
 		status |= axis->status;
 	}
 	Wire.write(status);
-	Serial << ']' << NL;
+	DEBUG_SERIAL("]" NL);
 }
 
 void clone_first_cmd()
@@ -273,7 +281,7 @@ void handle_set_axes_quadrant()
 			cur_quadrant += AXIS_QUADRANT_COUNT;
 
 		rotations = cmds->set_axis_args[axis->index].rotations;
-		target_quadrant = cmds->set_axis_args[axis->index].index;
+		target_quadrant = cmds->set_axis_args[axis->index].quadrant;
 
 		dist_quadrant = target_quadrant - cur_quadrant;
 		if (dist_quadrant <= -AXIS_QUADRANT_COUNT / 2)
@@ -281,9 +289,9 @@ void handle_set_axes_quadrant()
 		else if (dist_quadrant > AXIS_QUADRANT_COUNT / 2)
 			dist_quadrant -= AXIS_QUADRANT_COUNT;
 
-		Serial << "Set axis " << axis->index << " speed: " << speed <<
+		DEBUG_SERIAL("Set axis " << axis->index << " speed: " << speed <<
 			" rotations: " << rotations << " target: " << target_quadrant <<
-			" cur: " << cur_quadrant << " dist: " << dist_quadrant << NL;
+			" cur: " << cur_quadrant << " dist: " << dist_quadrant << NL);
 
 		// TODO: add support for rotations (now only takes the shortest path)
 		if (!rotations)
@@ -323,7 +331,7 @@ void axes_homing()
 	clone_first_cmd();
 	send_cmds();
 
-	Serial << "  waiting for slaves.." << NL;
+	DEBUG_SERIAL("  waiting for slaves.." NL);
 	while ((millis() - start_ms) < AXIS_HOMING_TIMEOUT_MS)
 		delay(100);
 
@@ -331,34 +339,34 @@ void axes_homing()
 		if (Wire.requestFrom(i, (uint8_t)1)) {
 			status = Wire.read();
 			for (uint8_t a = 0; a < AXIS_PER_ARDUINO; a++) {
-				Serial << "  axis: " << (a + i * AXIS_PER_ARDUINO) <<
-					(status & 0xC0 ? " didn't made it home!" : " is home!") << NL;
+				DEBUG_SERIAL("  axis: " << (a + i * AXIS_PER_ARDUINO) <<
+					(status & 0xC0 ? " didn't made it home!" : " is home!") << NL);
 				status <<= 2;
 			}
 		}
 		else
-			Serial << "  axes: " << i * AXIS_PER_ARDUINO << '-' <<
-				(i + 1) * AXIS_PER_ARDUINO - 1 << " didn't respond!" << NL;
+			DEBUG_SERIAL("  axes: " << i * AXIS_PER_ARDUINO << '-' <<
+				(i + 1) * AXIS_PER_ARDUINO - 1 << " didn't respond!" NL);
 	}
 
-	Serial << "Done homing!" << NL;
+	DEBUG_SERIAL("Done homing!" NL);
 	delay(1000);
 }
 
-void set_axis_quadrant(uint8_t axis_index, uint8_t quadrant_index, int8_t rotations, uint16_t speed)
+void set_axis_quadrant(uint8_t axis_index, uint8_t quadrant, int8_t rotations, uint16_t speed)
 {
 	cmd_t *p = cmds + axis_index / AXIS_PER_ARDUINO;
 
 	axis_index %= AXIS_PER_ARDUINO;
 	p->id = CMD_SET_AXES_QUADRANTS;
-	p->set_axis_args[axis_index].index = quadrant_index;
+	p->set_axis_args[axis_index].quadrant = quadrant;
 	p->set_axis_args[axis_index].rotations = rotations;
 	p->set_axis_args[axis_index].speed = speed / CMD_SPEED_SCALE;
 }
 
-void set_axes_quadrant(uint8_t quadrant_index, int8_t rotations, uint16_t speed)
+void set_axes_quadrant(uint8_t quadrant, int8_t rotations, uint16_t speed)
 {
-	set_axis_quadrant(0, quadrant_index, rotations, speed);
+	set_axis_quadrant(0, quadrant, rotations, speed);
 	memcpy(cmds->set_axis_args + 1, cmds->set_axis_args,
 		sizeof(*(cmds->set_axis_args)) * (AXIS_PER_ARDUINO - 1));
 	clone_first_cmd();
@@ -369,12 +377,12 @@ void update_pattern()
 	// TODO: add more patterns - this simple one is the first testing
 	uint32_t cur_ms = millis();
 	static uint32_t last_ms = 0;
-	static uint8_t last_quadrant_index = 0;
+	static uint8_t last_quadrant = 0;
 
 	if (cur_ms - last_ms > 3000) {
 		last_ms = cur_ms;
-		last_quadrant_index++;
-		set_axes_quadrant(last_quadrant_index, 0, AXIS_SPEED);
+		last_quadrant++;
+		set_axes_quadrant(last_quadrant, 0, AXIS_SPEED);
 		send_cmds();
 	}
 }
@@ -382,13 +390,15 @@ void update_pattern()
 void setup()
 {
 	delay(500);										// wait for power stabilization
-	Serial.begin(SERIAL_BAUD_RATE);					// init UART for debuging
-	Serial << F("Rotating Rods V1 by A.E.TECH 2022") << NL;
+#ifdef DEBUG_SERIAL_BAUDRATE
+	Serial.begin(DEBUG_SERIAL_BAUDRATE);					// init UART for debuging
+	DEBUG_SERIAL(F("Rotating Rods V1 by A.E.TECH 2022" NL));
+#endif
 
 	arduino_id = (PIND >> 2) & 7;					// D2-D4 encodes the arduino ID
 	uint8_t axes_count = arduino_id < (AXIS_TOTAL_COUNT / AXIS_PER_ARDUINO) ?
 		AXIS_PER_ARDUINO : AXIS_TOTAL_COUNT % AXIS_PER_ARDUINO;
-	Serial << "  arduino_id: " << arduino_id << NL << "  axes_count: " << axes_count << NL;
+	DEBUG_SERIAL("  arduino_id: " << arduino_id << NL "  axes_count: " << axes_count << NL);
 
 	axes = new axis_t[axes_count + 1];				// allocate and initialize axes
 	axes[axes_count].motor = NULL;					// last axis is NULL to stop iterations
@@ -431,5 +441,5 @@ void loop()
 	for (axis_t *axis = axes; axis->motor; axis++)
 		axis->motor->run();							// TODO: add axis enable / disable control
 
-	delay(1);
+	// delay(1);
 }
