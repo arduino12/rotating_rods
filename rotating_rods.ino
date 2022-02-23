@@ -260,8 +260,8 @@ void handle_set_axes_quadrant()
 {
 	int8_t cur_quadrant;
 	int8_t target_quadrant;
-	int8_t dist_quadrant;
-	uint8_t rotations;
+	int8_t diff_quadrant;
+	int8_t rotations;
 	uint16_t speed;
 
 	for (axis_t *axis = axes; axis->motor; axis++) {
@@ -283,19 +283,27 @@ void handle_set_axes_quadrant()
 		rotations = cmds->set_axis_args[axis->index].rotations;
 		target_quadrant = cmds->set_axis_args[axis->index].quadrant;
 
-		dist_quadrant = target_quadrant - cur_quadrant;
-		if (dist_quadrant <= -AXIS_QUADRANT_COUNT / 2)
-			dist_quadrant += AXIS_QUADRANT_COUNT;
-		else if (dist_quadrant > AXIS_QUADRANT_COUNT / 2)
-			dist_quadrant -= AXIS_QUADRANT_COUNT;
+		diff_quadrant = target_quadrant - cur_quadrant;
+		if (diff_quadrant <= -AXIS_QUADRANT_COUNT / 2)
+			diff_quadrant += AXIS_QUADRANT_COUNT;
+		else if (diff_quadrant > AXIS_QUADRANT_COUNT / 2)
+			diff_quadrant -= AXIS_QUADRANT_COUNT;
+
+		if (rotations > 0) {
+			if (diff_quadrant > 0)
+				rotations--;
+		}
+		else if (rotations < 0) {
+			if (diff_quadrant < 0)
+				rotations++;
+		}
+		diff_quadrant += rotations * AXIS_QUADRANT_COUNT;
 
 		DEBUG_SERIAL("Set axis " << axis->index << " speed: " << speed <<
 			" rotations: " << rotations << " target: " << target_quadrant <<
-			" cur: " << cur_quadrant << " dist: " << dist_quadrant << NL);
+			" cur: " << cur_quadrant << " dist: " << diff_quadrant << NL);
 
-		// TODO: add support for rotations (now only takes the shortest path)
-		if (!rotations)
-			axis->motor->move(axis->motor->distanceToGo() + AXIS_STEPS_PER_QUADRANT * dist_quadrant);
+		axis->motor->move(axis->motor->distanceToGo() + diff_quadrant * AXIS_STEPS_PER_QUADRANT);
 	}
 }
 
@@ -391,7 +399,7 @@ void setup()
 {
 	delay(500);										// wait for power stabilization
 #ifdef DEBUG_SERIAL_BAUDRATE
-	Serial.begin(DEBUG_SERIAL_BAUDRATE);					// init UART for debuging
+	Serial.begin(DEBUG_SERIAL_BAUDRATE);			// init UART for debuging
 	DEBUG_SERIAL(F("Rotating Rods V1 by A.E.TECH 2022" NL));
 #endif
 
