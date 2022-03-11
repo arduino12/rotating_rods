@@ -74,6 +74,7 @@
 #define CMD_SPEED_SCALE					(10)
 #define ARDUINO_COUNT					((AXIS_TOTAL_COUNT + AXIS_PER_ARDUINO - 1) / AXIS_PER_ARDUINO)
 #define NL								"\n"
+// #define AXIS_DISABLE_SUPPORT
 
 #ifdef DEBUG_SERIAL_BAUDRATE
 	#define DEBUG_SERIAL(args)			Serial << args
@@ -176,7 +177,9 @@ void handle_axes_homing()
 			}
 			else if (axis->status == AXIS_STATUS_HOMING2) {
 				if (!axis->motor->isRunning()) {
+#ifdef AXIS_DISABLE_SUPPORT
 					axis->motor->disableOutputs();
+#endif
 					axis->motor->setCurrentPosition(0);
 					axis->status = AXIS_STATUS_IDLE;
 					DEBUG_SERIAL("  axis: " << axis->index << " is home!" NL);
@@ -387,7 +390,7 @@ void update_pattern()
 	static uint32_t last_ms = 0;
 	static uint8_t last_quadrant = 0;
 
-	if (cur_ms - last_ms > 3000) {
+	if (cur_ms - last_ms > 3000000) {
 		last_ms = cur_ms;
 		last_quadrant++;
 		set_axes_quadrant(last_quadrant, 0, AXIS_SPEED);
@@ -397,7 +400,7 @@ void update_pattern()
 
 void setup()
 {
-	delay(500);										// wait for power stabilization
+	delay(3000);									// wait for power stabilization
 #ifdef DEBUG_SERIAL_BAUDRATE
 	Serial.begin(DEBUG_SERIAL_BAUDRATE);			// init UART for debuging
 	DEBUG_SERIAL(F("Rotating Rods V1 by A.E.TECH 2022" NL));
@@ -418,10 +421,15 @@ void setup()
 		axis->motor = new AccelStepper(
 			AccelStepper::DRIVER, AXIS_PUL_PIN + i * 3, AXIS_DIR_PIN + i * 3);
 		axis->motor->setEnablePin(AXIS_ENA_PIN + i * 3);
-		axis->motor->setPinsInverted(arduino_id & 2, arduino_id & 4, !(arduino_id & 1));
+		if (i)
+			axis->motor->setPinsInverted(0, 0, 1);
+		else
+			axis->motor->setPinsInverted(arduino_id & 2, arduino_id & 4, !(arduino_id & 1));
 		axis->motor->setMaxSpeed(AXIS_SPEED);
 		axis->motor->setAcceleration(AXIS_ACCELERATION);
+#ifdef AXIS_DISABLE_SUPPORT
 		axis->motor->disableOutputs();
+#endif
 		pinMode(AXIS_LMT_PIN + i, INPUT_PULLUP);
 	}
 
@@ -432,9 +440,9 @@ void setup()
 		Wire.onRequest(i2c_on_request);				// slave status requested callback
 	}
 	else {
+		delay(1500);								// master wait for its slaves
 		cmds = new cmd_t[ARDUINO_COUNT];			// cmd object for master and each slave
 		Wire.begin();								// init I2C as master
-		delay(500);									// master wait for its slaves
 		axes_homing();								// send homing cmd to all slaves and home master's axes - blocking!
 	}
 }
