@@ -57,6 +57,7 @@
 #include <AccelStepper.h>							// https://github.com/waspinator/AccelStepper.git
 
 #define DEBUG_SERIAL_BAUDRATE			(115200)	// debug UART baudrate, comment out to disable
+#define I2C_BITRATE						(10000)		// clock speed for I2C bus - slow because of long wires
 #define AXIS_ENA_PIN					(2)			// pins (2 + 3n) connected to stepper driver ENAs
 #define AXIS_DIR_PIN					(3)			// pins (3 + 3n) connected to stepper driver DIRs
 #define AXIS_PUL_PIN					(4)			// pins (4 + 3n) connected to stepper driver PULs
@@ -390,7 +391,7 @@ void update_pattern()
 	static uint32_t last_ms = 0;
 	static uint8_t last_quadrant = 0;
 
-	if (cur_ms - last_ms > 3000000) {
+	if (cur_ms - last_ms > 6000) {
 		last_ms = cur_ms;
 		last_quadrant++;
 		set_axes_quadrant(last_quadrant, 0, AXIS_SPEED);
@@ -435,14 +436,18 @@ void setup()
 
 	if (arduino_id) {
 		cmds = new cmd_t;							// cmd object for slave
+		// Wire.begin(arduino_id);						// init I2C as slave
+		delay(500);									// wait for master to init I2C
+		// Wire.end();									// init I2C as slave
 		Wire.begin(arduino_id);						// init I2C as slave
 		Wire.onReceive(i2c_on_receive);				// slave cmd received callback
 		Wire.onRequest(i2c_on_request);				// slave status requested callback
 	}
 	else {
-		delay(1500);								// master wait for its slaves
 		cmds = new cmd_t[ARDUINO_COUNT];			// cmd object for master and each slave
 		Wire.begin();								// init I2C as master
+		Wire.setClock(I2C_BITRATE);					// set I2C clock speed
+		delay(1500);								// master wait for its slaves
 		axes_homing();								// send homing cmd to all slaves and home master's axes - blocking!
 	}
 }
