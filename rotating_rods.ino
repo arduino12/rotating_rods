@@ -40,12 +40,12 @@
  *   cmd_start:
  *     0x55.
  *   cmd_id:
- *     1: homing.
- *     2: set axes quadrants [q0, s0, q1, s1, q2, s2, q3, s3] (q=quadrant, s=speed).
+ *     2: homing.
+ *     1: set axes quadrants [q0, s0, q1, s1, q2, s2, q3, s3] (q=quadrant, s=speed).
  *   cmd_args:
  *     [quadrant bits]:
  *       7-2: rotations      - 0=the fastest direction, >0=right, <0=left.
- *       1-0: quadrant index - 0=home=0°, 1=90°, 2=180°, 2=270°.
+ *       1-0: quadrant index - 0=home=0°, 1=90°, 2=180°, 3=270°.
  *     [speed]:
  *       0-255 the greater the faster.
  *
@@ -384,19 +384,128 @@ void set_axes_quadrant(uint8_t quadrant, int8_t rotations, uint16_t speed)
 	clone_first_cmd();
 }
 
+#define STEPS_PER_PATTERN	(4)
+#define DELAY_PER_STEP		(6000)
+#define DELAY_PER_ROLL		(DELAY_PER_STEP / AXIS_TOTAL_COUNT + 100)
+#define DELAY_PER_ROLLS		(3000)
+
 void update_pattern()
 {
-	// TODO: add more patterns - this simple one is the first testing
-	uint32_t cur_ms = millis();
-	static uint32_t last_ms = 0;
-	static uint8_t last_quadrant = 0;
+	uint8_t last_quadrant = 0;
 
-	if (cur_ms - last_ms > 6000) {
-		last_ms = cur_ms;
+	// clockwise in parallel
+	for (uint8_t i = 0 ; i < STEPS_PER_PATTERN; i++) {
 		last_quadrant++;
 		set_axes_quadrant(last_quadrant, 0, AXIS_SPEED);
 		send_cmds();
+		delay(DELAY_PER_STEP);
 	}
+
+	// counter-clockwise in parallel
+	for (uint8_t i = 0 ; i < STEPS_PER_PATTERN; i++) {
+		last_quadrant--;
+		set_axes_quadrant(last_quadrant, 0, AXIS_SPEED);
+		send_cmds();
+		delay(DELAY_PER_STEP);
+	}
+
+	// clockwise inwards (sides towards center) 
+	for (uint8_t i = 0 ; i < STEPS_PER_PATTERN; i++) {
+		last_quadrant++;
+		for (uint8_t a = 0 ; a < AXIS_TOTAL_COUNT / 2; a++) {
+			set_axis_quadrant(a, last_quadrant, 0, AXIS_SPEED);
+			set_axis_quadrant(AXIS_TOTAL_COUNT - 1 - a, last_quadrant, 0, AXIS_SPEED);
+			send_cmds();
+			delay(DELAY_PER_ROLL);
+		}
+		delay(DELAY_PER_ROLLS);
+		i++;
+		last_quadrant++;
+		for (uint8_t a = 0 ; a < AXIS_TOTAL_COUNT / 2; a++) {
+			set_axis_quadrant(AXIS_TOTAL_COUNT / 2 + a, last_quadrant, 0, AXIS_SPEED);
+			set_axis_quadrant(AXIS_TOTAL_COUNT / 2 - 1 - a, last_quadrant, 0, AXIS_SPEED);
+			send_cmds();
+			delay(DELAY_PER_ROLL);
+		}
+		delay(DELAY_PER_ROLLS);
+	}
+
+	// counter-clockwise swipe wave (left to right to left to right) 
+	for (uint8_t i = 0 ; i < STEPS_PER_PATTERN; i++) {
+		last_quadrant--;
+		for (uint8_t a = 0 ; a < AXIS_TOTAL_COUNT; a++) {
+			set_axis_quadrant(AXIS_TOTAL_COUNT - 1 - a, last_quadrant, 0, AXIS_SPEED);
+			send_cmds();
+			delay(DELAY_PER_ROLL);
+		}
+		delay(DELAY_PER_ROLLS);
+		i++;
+		last_quadrant--;
+		for (uint8_t a = 0 ; a < AXIS_TOTAL_COUNT; a++) {
+			set_axis_quadrant(a, last_quadrant, 0, AXIS_SPEED);
+			send_cmds();
+			delay(DELAY_PER_ROLL);
+		}
+		delay(DELAY_PER_ROLLS);
+	}
+
+	// counter-clockwise inwards (sides towards center) 
+	for (uint8_t i = 0 ; i < STEPS_PER_PATTERN; i++) {
+		last_quadrant--;
+		for (uint8_t a = 0 ; a < AXIS_TOTAL_COUNT / 2; a++) {
+			set_axis_quadrant(a, last_quadrant, 0, AXIS_SPEED);
+			set_axis_quadrant(AXIS_TOTAL_COUNT - 1 - a, last_quadrant, 0, AXIS_SPEED);
+			send_cmds();
+			delay(DELAY_PER_ROLL);
+		}
+		delay(DELAY_PER_ROLLS);
+		i++;
+		last_quadrant--;
+		for (uint8_t a = 0 ; a < AXIS_TOTAL_COUNT / 2; a++) {
+			set_axis_quadrant(AXIS_TOTAL_COUNT / 2 + a, last_quadrant, 0, AXIS_SPEED);
+			set_axis_quadrant(AXIS_TOTAL_COUNT / 2 - 1 - a, last_quadrant, 0, AXIS_SPEED);
+			send_cmds();
+			delay(DELAY_PER_ROLL);
+		}
+		delay(DELAY_PER_ROLLS);
+	}
+
+	// counter-clockwise swipe wave (left to right to left to right) 
+	for (uint8_t i = 0 ; i < STEPS_PER_PATTERN; i++) {
+		last_quadrant++;
+		for (uint8_t a = 0 ; a < AXIS_TOTAL_COUNT; a++) {
+			set_axis_quadrant(a, last_quadrant, 0, AXIS_SPEED);
+			send_cmds();
+			delay(DELAY_PER_ROLL);
+		}
+		delay(DELAY_PER_ROLLS);
+		i++;
+		last_quadrant++;
+		for (uint8_t a = 0 ; a < AXIS_TOTAL_COUNT; a++) {
+			set_axis_quadrant(AXIS_TOTAL_COUNT - 1 - a, last_quadrant, 0, AXIS_SPEED);
+			send_cmds();
+			delay(DELAY_PER_ROLL);
+		}
+		delay(DELAY_PER_ROLLS);
+	}
+
+	// 4 random sequences
+	for (uint8_t i = 0 ; i < STEPS_PER_PATTERN; i++) {
+		last_quadrant++;
+		for (uint8_t a = 0 ; a < AXIS_TOTAL_COUNT; a++)
+			set_axis_quadrant(a, last_quadrant, random(-3, 3), AXIS_SPEED / 4);
+		send_cmds();
+		delay(20000);
+	}
+
+	delay(60000);
+	axes_homing();
+}
+
+void update_axes()
+{
+	for (axis_t *axis = axes; axis->motor; axis++)
+		axis->motor->run();							// TODO: add axis enable / disable control
 }
 
 void setup()
@@ -449,18 +558,31 @@ void setup()
 		Wire.setClock(I2C_BITRATE);					// set I2C clock speed
 		delay(1500);								// master wait for its slaves
 		axes_homing();								// send homing cmd to all slaves and home master's axes - blocking!
+	
+		cli();										// use T2 COMPA ISR @ 5.2KHz
+		TCCR2B = 0; 
+		TCCR2A = (1<<WGM21);
+		TCCR2B = (1<<CS22) | (1<<CS21) | (1<<CS20);
+		TIMSK2 = (1<<OCIE2A);
+		sei();
 	}
 }
 
 void loop()
 {
-	if (arduino_id)
+	if (arduino_id) {
 		handle_cmd();								// slave just handles cmds (recived from i2c_on_receive)
+		update_axes();
+	}
 	else
 		update_pattern();							// master calls send_cmds() that sends slave cmds and handle its own cmds
 
-	for (axis_t *axis = axes; axis->motor; axis++)
-		axis->motor->run();							// TODO: add axis enable / disable control
-
+	// update_axes();
 	// delay(1);
+}
+
+ISR(TIMER2_COMPA_vect)								// T2 COMPA ISR @ 5.2KHz
+{
+	OCR2A = 0x02;
+	update_axes();
 }
