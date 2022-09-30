@@ -40,8 +40,9 @@
  *   cmd_start:
  *     0x55.
  *   cmd_id:
- *     2: homing.
- *     1: set axes quadrants [q0, s0, q1, s1, q2, s2, q3, s3] (q=quadrant, s=speed).
+ *     1: homing.
+ *     2: set axes enable [e] (e=enable bitmask).
+ *     3: set axes quadrants [q0, s0, q1, s1, q2, s2, q3, s3] (q=quadrant, s=speed).
  *   cmd_args:
  *     [quadrant bits]:
  *       7-2: rotations      - 0=the fastest direction, >0=right, <0=left.
@@ -92,8 +93,9 @@ enum {
 
 enum {
 	CMD_NONE = 0,
-	CMD_SET_AXES_QUADRANTS,
 	CMD_HOMING,
+	CMD_SET_AXES_ENABLE,
+	CMD_SET_AXES_QUADRANTS,
 	CMD_COUNT,
 };
 
@@ -260,6 +262,19 @@ void clone_first_cmd()
 		memcpy(cmds + i, cmds, sizeof(cmd_t));
 }
 
+void handle_set_axes_enable()
+{
+	for (axis_t *axis = axes; axis->motor; axis++) {
+		if (axis->status)
+			continue;
+
+		if (_BV(axis->index) & cmds->args[0])
+			axis->motor->enableOutputs();
+		else
+			axis->motor->disableOutputs();
+	}
+}
+
 void handle_set_axes_quadrant()
 {
 	int8_t cur_quadrant;
@@ -316,7 +331,9 @@ void handle_cmd()
 	if (cmds->id) {
 		if (cmds->id == CMD_HOMING)
 			handle_axes_homing();
-		else // if (cmds->id == CMD_SET_AXES_QUADRANTS)
+		else if (cmds->id == CMD_SET_AXES_ENABLE)
+			handle_set_axes_enable();
+		else if (cmds->id == CMD_SET_AXES_QUADRANTS)
 			handle_set_axes_quadrant();
 		cmds->id = CMD_NONE;
 	}
@@ -363,6 +380,16 @@ void axes_homing()
 
 	DEBUG_SERIAL("Done homing!" NL);
 	delay(1000);
+}
+
+void set_axes_enable(bool is_enable)
+{
+	cmd_t *p = cmds;
+
+	p->id = CMD_SET_AXES_ENABLE;
+	p->args[0] = (is_enable ? 0xFF : 0);
+
+	clone_first_cmd();
 }
 
 void set_axis_quadrant(uint8_t axis_index, uint8_t quadrant, int8_t rotations, uint16_t speed)
@@ -493,12 +520,14 @@ void update_pattern()
 	for (uint8_t i = 0 ; i < STEPS_PER_PATTERN; i++) {
 		last_quadrant++;
 		for (uint8_t a = 0 ; a < AXIS_TOTAL_COUNT; a++)
-			set_axis_quadrant(a, last_quadrant, random(-3, 3), AXIS_SPEED / 4);
+			set_axis_quadrant(a, last_quadrant, random(-3, 4), AXIS_SPEED / 4);
 		send_cmds();
 		delay(20000);
 	}
 
+	set_axes_enable(false);
 	delay(60000);
+	// set_axes_enable(true); // homing enables axes anyway
 	axes_homing();
 }
 
