@@ -57,7 +57,7 @@
 #include <Wire.h>
 #include <AccelStepper.h>							// https://github.com/waspinator/AccelStepper.git
 
-#define DEBUG_SERIAL_BAUDRATE			(115200)	// debug UART baudrate, comment out to disable
+// #define DEBUG_SERIAL_BAUDRATE			(115200)	// debug UART baudrate, comment out to disable
 #define I2C_BITRATE						(10000)		// clock speed for I2C bus - slow because of long wires
 #define AXIS_ENA_PIN					(2)			// pins (2 + 3n) connected to stepper driver ENAs
 #define AXIS_DIR_PIN					(3)			// pins (3 + 3n) connected to stepper driver DIRs
